@@ -21,7 +21,8 @@ npm test         # 运行测试
 powershell -ExecutionPolicy Bypass -File scripts\create-shortcut.ps1
 ```
 
-这会在桌面和开始菜单各放一个「奥马哈鱿鱼局」快捷方式（带鱿鱼图标），启动器本体装在
+这会在桌面和开始菜单各放一个「奥马哈鱿鱼局」快捷方式（图标是现场画的：绿呢台面上一张扑克牌，
+黑桃红心角标，牌面是鱿鱼），启动器本体装在
 `%LOCALAPPDATA%\OmahaSquid\`，所以快捷方式跟当前分支无关，仓库里也不会多出未跟踪的文件。
 **仓库换过位置、或者 `scripts\launch.ps1` 改过之后，重跑一次上面的命令即可。**
 
