@@ -253,6 +253,8 @@ function Table({ store, onQuit }: { store: GameStore; onQuit: () => void }) {
             seats={state.seats}
             stats={state.stats}
             bigBlind={state.config.table.bigBlind}
+            profitHistory={state.profitHistory}
+            squidEnabled={state.config.squidEnabled}
           />
 
           <HandLog log={state.log} />

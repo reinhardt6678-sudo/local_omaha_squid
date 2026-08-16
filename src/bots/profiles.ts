@@ -36,6 +36,16 @@ export interface BotProfile {
   sizing: number;
   /** 决策噪声，0 = 完全按策略，越大越不可预测。 */
   randomness: number;
+
+  /* --- 鱿鱼旋钮 --- */
+  /**
+   * 对鱿鱼彩头的重视程度，0 = 完全当成纯扑克在打。
+   *
+   * 鱿鱼规则结构性地惩罚紧手（决定你买不买单的不是赢了多少条，
+   * 而是「本轮有没有至少赢下一手」），所以这个系数本身就是一种风格：
+   * 岩石之所以是岩石，正是因为它算不清这笔账。
+   */
+  squidAwareness: number;
 }
 
 export const BOT_PROFILES: BotProfile[] = [
@@ -55,6 +65,7 @@ export const BOT_PROFILES: BotProfile[] = [
     callDown: 1,
     sizing: 1,
     randomness: 0.06,
+    squidAwareness: 1,
   },
   {
     id: 'tag',
@@ -72,6 +83,7 @@ export const BOT_PROFILES: BotProfile[] = [
     callDown: 0.85,
     sizing: 1.08,
     randomness: 0.05,
+    squidAwareness: 0.95,
   },
   {
     id: 'lag',
@@ -89,6 +101,7 @@ export const BOT_PROFILES: BotProfile[] = [
     callDown: 1.0,
     sizing: 1.12,
     randomness: 0.1,
+    squidAwareness: 1.15,
   },
   {
     id: 'nit',
@@ -106,6 +119,8 @@ export const BOT_PROFILES: BotProfile[] = [
     callDown: 0.7,
     sizing: 0.85,
     randomness: 0.04,
+    // 岩石看不懂鱿鱼这笔账 —— 它也是被这个规则罚得最惨的那个
+    squidAwareness: 0.45,
   },
   {
     id: 'station',
@@ -123,6 +138,8 @@ export const BOT_PROFILES: BotProfile[] = [
     callDown: 2.0,
     sizing: 0.8,
     randomness: 0.12,
+    // 本来就什么都跟，鱿鱼再急也没有更松的空间了
+    squidAwareness: 0.5,
   },
   {
     id: 'maniac',
@@ -140,6 +157,7 @@ export const BOT_PROFILES: BotProfile[] = [
     callDown: 1.15,
     sizing: 1.28,
     randomness: 0.2,
+    squidAwareness: 1.25,
   },
   {
     id: 'limper',
@@ -157,6 +175,7 @@ export const BOT_PROFILES: BotProfile[] = [
     callDown: 1.5,
     sizing: 0.78,
     randomness: 0.14,
+    squidAwareness: 0.6,
   },
 ];
 

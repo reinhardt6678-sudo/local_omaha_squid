@@ -8,6 +8,7 @@
 import { createRng, type Rng } from '../engine/cards';
 import {
   applyAction,
+  contenders,
   createSeat,
   legalActions,
   startHand,
@@ -31,6 +32,7 @@ import {
 } from '../engine/squid';
 import { decide, type BotDecision } from '../bots/policy';
 import { getProfile } from '../bots/profiles';
+import { squidPressure } from '../bots/squidValue';
 
 export interface SessionConfig {
   table: TableConfig;
@@ -41,6 +43,11 @@ export interface SessionConfig {
   autoRebuy: boolean;
   /** 机器人蒙特卡洛迭代次数。 */
   botIterations: number;
+  /**
+   * 机器人对鱿鱼彩头的重视程度（会再乘上各自档案的 squidAwareness）。
+   * 设为 0 就是一桌只会算底池、完全不管鱿鱼的纯扑克机器人。
+   */
+  botSquidAwareness: number;
 }
 
 export const DEFAULT_SESSION_CONFIG: SessionConfig = {
@@ -49,6 +56,7 @@ export const DEFAULT_SESSION_CONFIG: SessionConfig = {
   squidEnabled: true,
   autoRebuy: true,
   botIterations: 260,
+  botSquidAwareness: 1,
 };
 
 export interface PlayerStats {
@@ -63,6 +71,51 @@ export interface PlayerStats {
   buyIn: number;
   /** 鱿鱼结算累计净额（筹码）。 */
   squidNet: number;
+
+  /* --- 翻前 3bet --- */
+  /** 翻前面对加注、轮到自己行动的次数。 */
+  threeBetChances: number;
+  /** 其中选择再加注的次数。 */
+  threeBetHands: number;
+
+  /* --- 翻后 --- */
+  /** 看到翻牌的手数。 */
+  sawFlopHands: number;
+  /** 走到摊牌的手数。 */
+  showdownHands: number;
+  /** 摊牌拿下主池的手数。 */
+  showdownsWon: number;
+  /** 翻后主动下注 / 加注的次数。 */
+  aggressiveActions: number;
+  /** 翻后跟注的次数。 */
+  callActions: number;
+
+  /* --- 鱿鱼 --- */
+  /** 参与过的鱿鱼结算轮数。 */
+  squidRounds: number;
+  /** 其中当付款方（本轮一条没拿到）的次数。 */
+  squidRoundsPaid: number;
+}
+
+function emptyStats(buyIn: number): PlayerStats {
+  return {
+    handsPlayed: 0,
+    vpipHands: 0,
+    pfrHands: 0,
+    handsWon: 0,
+    squidsWon: 0,
+    buyIn,
+    squidNet: 0,
+    threeBetChances: 0,
+    threeBetHands: 0,
+    sawFlopHands: 0,
+    showdownHands: 0,
+    showdownsWon: 0,
+    aggressiveActions: 0,
+    callActions: 0,
+    squidRounds: 0,
+    squidRoundsPaid: 0,
+  };
 }
 
 export type SessionPhase =
@@ -92,9 +145,19 @@ export interface SessionState {
   /** 本手牌各玩家是否主动投过钱（用于统计 VPIP）。 */
   voluntaryThisHand: Set<string>;
   raisedThisHand: Set<string>;
+  /** 翻牌发出来时还没弃牌的人（用于统计看翻牌率和摊牌率）。 */
+  sawFlopThisHand: Set<string>;
   /** 当前这手牌的日志已经同步到会话日志的条数。 */
   copiedHandLogCount: number;
+  /**
+   * 每手牌开始时各人的盈亏快照（筹码），用来画盈亏曲线。
+   * 只留最近 MAX_HISTORY 个点，长时间挂机也不会吃内存。
+   */
+  profitHistory: Record<string, number[]>;
 }
+
+/** 盈亏曲线保留的最大点数。 */
+const MAX_HISTORY = 600;
 
 export interface SeatSetup {
   id: string;
@@ -130,16 +193,10 @@ export function createSession(
   );
 
   const stats: Record<string, PlayerStats> = {};
+  const profitHistory: Record<string, number[]> = {};
   for (const seat of seats) {
-    stats[seat.id] = {
-      handsPlayed: 0,
-      vpipHands: 0,
-      pfrHands: 0,
-      handsWon: 0,
-      squidsWon: 0,
-      buyIn: config.table.startingStack,
-      squidNet: 0,
-    };
+    stats[seat.id] = emptyStats(config.table.startingStack);
+    profitHistory[seat.id] = [];
   }
 
   const state: SessionState = {
@@ -156,7 +213,9 @@ export function createSession(
     lastBotDecision: null,
     voluntaryThisHand: new Set(),
     raisedThisHand: new Set(),
+    sawFlopThisHand: new Set(),
     copiedHandLogCount: 0,
+    profitHistory,
   };
 
   return { state, rng };
@@ -191,9 +250,13 @@ export function beginHand(state: SessionState, rng: Rng): void {
     return;
   }
 
+  // 开局前记一笔盈亏 —— 此时上一手的派彩和鱿鱼结算都已经落袋
+  recordProfitPoint(state);
+
   state.handNumber += 1;
   state.voluntaryThisHand = new Set();
   state.raisedThisHand = new Set();
+  state.sawFlopThisHand = new Set();
   state.lastBotDecision = null;
   state.copiedHandLogCount = 0;
 
@@ -232,19 +295,35 @@ export function submitAction(state: SessionState, action: Action): void {
 
   const seat = state.hand.seats[state.hand.actor];
   const preflop = state.hand.street === 'preflop';
+  const stats = state.stats[seat.id];
 
-  // 统计 VPIP / PFR
   if (preflop) {
+    // 统计 VPIP / PFR
     if (action.type === 'call' || action.type === 'bet' || action.type === 'raise') {
       state.voluntaryThisHand.add(seat.id);
     }
     if (action.type === 'raise' || action.type === 'bet') {
       state.raisedThisHand.add(seat.id);
     }
+
+    // 统计 3bet：面对加注还轮到自己行动，就算一次机会
+    if (state.hand.raisesThisStreet >= 1) {
+      stats.threeBetChances += 1;
+      if (action.type === 'raise' || action.type === 'bet') stats.threeBetHands += 1;
+    }
+  } else {
+    // 激进度只算翻后 —— 翻前的加注已经被 PFR 和 3bet 覆盖了
+    if (action.type === 'bet' || action.type === 'raise') stats.aggressiveActions += 1;
+    if (action.type === 'call') stats.callActions += 1;
   }
 
   state.hand = applyAction(state.hand, action);
   syncLog(state);
+
+  // 翻牌刚发出来：此刻还没弃牌的人就是「看到翻牌」的人
+  if (state.sawFlopThisHand.size === 0 && state.hand.board.length >= 3) {
+    for (const s of contenders(state.hand)) state.sawFlopThisHand.add(s.id);
+  }
 
   if (state.hand.street === 'complete') {
     completeHand(state);
@@ -260,12 +339,29 @@ export function stepBot(state: SessionState, rng: Rng): BotDecision | null {
   const legal = legalActions(state.hand);
   if (!legal) return null;
 
+  const profile = getProfile(actor.profileId);
+
+  // 鱿鱼压力：让机器人知道赢下这手牌除了底池还值多少。
+  // 关掉鱿鱼玩法（或把意识调成 0）时不传，机器人就退回纯扑克策略。
+  const awareness = state.config.botSquidAwareness * profile.squidAwareness;
+  const squid =
+    state.config.squidEnabled && awareness > 0
+      ? squidPressure({
+          squid: state.squid,
+          config: state.config.squid,
+          playerId: actor.id,
+          bigBlindChips: state.config.table.bigBlind,
+          awareness,
+        })
+      : undefined;
+
   const decision = decide({
     state: state.hand,
     legal,
-    profile: getProfile(actor.profileId),
+    profile,
     rng,
     iterations: state.config.botIterations,
+    squid,
   });
 
   state.lastBotDecision = { seatId: actor.id, decision };
@@ -289,7 +385,13 @@ function completeHand(state: SessionState): void {
 
   for (const id of state.voluntaryThisHand) state.stats[id].vpipHands += 1;
   for (const id of state.raisedThisHand) state.stats[id].pfrHands += 1;
+  for (const id of state.sawFlopThisHand) state.stats[id].sawFlopHands += 1;
   for (const id of result.mainPotWinners) state.stats[id].handsWon += 1;
+
+  if (result.showdown) {
+    for (const id of result.revealed) state.stats[id].showdownHands += 1;
+    for (const id of result.mainPotWinners) state.stats[id].showdownsWon += 1;
+  }
 
   const bb = state.config.table.bigBlind;
   const winnerNames = result.mainPotWinners
@@ -377,10 +479,13 @@ export function applySettlement(state: SessionState): void {
     }
   }
 
+  const payerIds = new Set(settlement.payers.map((p) => p.playerId));
   for (const seat of state.seats) {
     const delta = chips[seat.id] ?? 0;
     seat.stack += delta;
     state.stats[seat.id].squidNet += delta;
+    state.stats[seat.id].squidRounds += 1;
+    if (payerIds.has(seat.id)) state.stats[seat.id].squidRoundsPaid += 1;
   }
 
   const describe = (id: string) => state.seats.find((s) => s.id === id)?.name ?? id;
@@ -428,6 +533,15 @@ function syncLog(state: SessionState): void {
   }
   state.copiedHandLogCount = handLog.length;
   if (state.log.length > 400) state.log.splice(0, state.log.length - 400);
+}
+
+/** 记一个盈亏曲线的点。补码不影响盈亏（筹码和买入同时增加），所以曲线是连续的。 */
+function recordProfitPoint(state: SessionState): void {
+  for (const seat of state.seats) {
+    const series = state.profitHistory[seat.id] ?? (state.profitHistory[seat.id] = []);
+    series.push(seat.stack - state.stats[seat.id].buyIn);
+    if (series.length > MAX_HISTORY) series.shift();
+  }
 }
 
 /** 盈亏（筹码），含鱿鱼结算。 */
