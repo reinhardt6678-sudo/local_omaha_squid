@@ -10,6 +10,28 @@ npm run build    # 生产构建，产物在 dist/
 npm test         # 运行测试
 ```
 
+## 一键启动（Windows）
+
+不想每次都开命令行的话，双击仓库根目录的 **`启动游戏.cmd`** 就能开打：它会自己找到 Node
+（不需要配 PATH）、第一次运行时自动装依赖、然后起服务器并打开浏览器。关掉黑窗口即结束游戏。
+
+想要桌面快捷方式，跑一次：
+
+```bash
+powershell -ExecutionPolicy Bypass -File scripts\create-shortcut.ps1
+```
+
+这会在桌面和开始菜单各放一个「奥马哈鱿鱼局」快捷方式（图标是现场画的：绿呢台面上一张扑克牌，
+黑桃红心角标，牌面是鱿鱼），启动器本体装在
+`%LOCALAPPDATA%\OmahaSquid\`，所以快捷方式跟当前分支无关，仓库里也不会多出未跟踪的文件。
+**仓库换过位置、或者 `scripts\launch.ps1` 改过之后，重跑一次上面的命令即可。**
+
+几个细节：
+
+- 已经在跑的时候再点一次快捷方式，只会把浏览器标签重新打开，不会起第二个服务器。
+- 没装 Node 的机器上会提示去 <https://nodejs.org> 装 LTS 版，而不是闪退。
+- `scripts\launch.ps1 -Port 5199 -NoOpen` 可以换端口 / 不自动开浏览器。
+
 ---
 
 ## 鱿鱼游戏规则
