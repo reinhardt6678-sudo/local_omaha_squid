@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { legalActions, type Action } from './engine/table';
-import { GameStore, useGameStore } from './game/store';
+import { legalActions, type Action, type ActionType } from './engine/table';
+import { GameStore, useGameStore, type GameEvent } from './game/store';
 import type { SeatSetup, SessionConfig } from './game/session';
 import { ActionBar } from './ui/ActionBar';
 import { PokerTable } from './ui/PokerTable';
@@ -8,6 +8,14 @@ import { SettlementModal } from './ui/SettlementModal';
 import { SetupScreen } from './ui/SetupScreen';
 import { SquidPanel } from './ui/SquidPanel';
 import { BotThinking, HandLog, StatsPanel } from './ui/SidePanels';
+import {
+  getSoundVolume,
+  isSoundEnabled,
+  playSound,
+  setSoundEnabled,
+  setSoundVolume,
+  type SoundName,
+} from './ui/sound';
 import './styles.css';
 
 /** 机器人每步之间的停顿，让牌局节奏看得清。 */
@@ -17,6 +25,46 @@ const BOT_DELAYS = [
   { label: '慢', ms: 1200 },
 ];
 
+const ACTION_SOUNDS: Record<ActionType, SoundName> = {
+  fold: 'fold',
+  check: 'check',
+  call: 'call',
+  bet: 'bet',
+  raise: 'raise',
+};
+
+/**
+ * 把牌局事件翻译成声音。
+ *
+ * 一手牌结束时「赢牌 / 拿鱿鱼 / 结算」会同时抛出来，靠错开的延迟排成一串，
+ * 不然三个音叠在一起糊成一团。
+ */
+function handleGameEvent(event: GameEvent): void {
+  switch (event.type) {
+    case 'action':
+      playSound(event.allIn && event.actionType !== 'fold' ? 'allin' : ACTION_SOUNDS[event.actionType]);
+      break;
+    case 'deal':
+      playSound('deal');
+      break;
+    case 'street':
+      playSound(event.street);
+      break;
+    case 'handEnd':
+      playSound(event.chopped ? 'chop' : event.heroWon ? 'winHero' : 'winOther');
+      break;
+    case 'squid':
+      playSound('squid', 480);
+      break;
+    case 'settlement':
+      playSound(event.heroReceives ? 'settleUp' : 'settleDown', 1000);
+      break;
+    case 'yourTurn':
+      playSound('yourTurn', 380);
+      break;
+  }
+}
+
 export default function App() {
   const [store, setStore] = useState<GameStore | null>(null);
 
@@ -25,6 +73,8 @@ export default function App() {
       <SetupScreen
         onStart={(setups: SeatSetup[], config: SessionConfig) => {
           const created = new GameStore(setups, config);
+          // 在发第一手牌之前挂上，第一手的发牌声才不会漏掉
+          created.onEvent = handleGameEvent;
           created.startHand();
           setStore(created);
         }}
@@ -42,6 +92,8 @@ function Table({ store, onQuit }: { store: GameStore; onQuit: () => void }) {
   const [delayIndex, setDelayIndex] = useState(1);
   const [showThinking, setShowThinking] = useState(true);
   const [autoNext, setAutoNext] = useState(true);
+  const [soundOn, setSoundOn] = useState(isSoundEnabled);
+  const [volume, setVolume] = useState(getSoundVolume);
   const timerRef = useRef<number | null>(null);
 
   const botDelay = BOT_DELAYS[delayIndex].ms;
@@ -89,6 +141,34 @@ function Table({ store, onQuit }: { store: GameStore; onQuit: () => void }) {
         </div>
 
         <div className="topbar-right">
+          <label className="toggle">
+            <input
+              type="checkbox"
+              checked={soundOn}
+              onChange={(e) => {
+                setSoundEnabled(e.target.checked);
+                setSoundOn(e.target.checked);
+                // 打开时先响一声，顺便确认音量合适
+                if (e.target.checked) playSound('squid');
+              }}
+            />
+            🔊 音效
+          </label>
+          <input
+            type="range"
+            className="volume-slider"
+            min={0}
+            max={1}
+            step={0.05}
+            value={volume}
+            disabled={!soundOn}
+            aria-label="音量"
+            onChange={(e) => {
+              const next = Number(e.target.value);
+              setSoundVolume(next);
+              setVolume(next);
+            }}
+          />
           <label className="toggle">
             <input
               type="checkbox"
