@@ -18,6 +18,8 @@ import { BOT_PROFILES } from '../src/bots/profiles.ts';
 
 const HANDS = Number(process.argv[2] ?? 20000);
 const SQUID_ENABLED = !process.argv.includes('--no-squid');
+/** --blind-bots：机器人完全不知道鱿鱼的存在，用来对比鱿鱼意识带来的差别。 */
+const SQUID_AWARENESS = process.argv.includes('--blind-bots') ? 0 : 1;
 const SEED = Number(process.env.SEED ?? 12345);
 
 const setups: SeatSetup[] = BOT_PROFILES.map((profile) => ({
@@ -27,9 +29,19 @@ const setups: SeatSetup[] = BOT_PROFILES.map((profile) => ({
   profileId: profile.id,
 }));
 
-console.log(`模拟 ${HANDS} 手 · ${setups.length} 人桌 · 每人一种风格\n`);
+console.log(
+  `模拟 ${HANDS} 手 · ${setups.length} 人桌 · 每人一种风格 · ` +
+    `鱿鱼${SQUID_ENABLED ? '开' : '关'}` +
+    (SQUID_ENABLED ? ` · 机器人鱿鱼意识${SQUID_AWARENESS > 0 ? '开' : '关'}` : '') +
+    '\n',
+);
 
-const config = { ...DEFAULT_SESSION_CONFIG, botIterations: 120, squidEnabled: SQUID_ENABLED };
+const config = {
+  ...DEFAULT_SESSION_CONFIG,
+  botIterations: 120,
+  squidEnabled: SQUID_ENABLED,
+  botSquidAwareness: SQUID_AWARENESS,
+};
 const { state, rng } = createSession(setups, config, SEED);
 
 const startTime = Date.now();

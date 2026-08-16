@@ -20,6 +20,7 @@ export function SetupScreen({ onStart }: Props) {
   const [baseValueBB, setBaseValueBB] = useState(2);
   const [squidOffset, setSquidOffset] = useState(3);
   const [earlyEnd, setEarlyEnd] = useState(true);
+  const [botsKnowSquid, setBotsKnowSquid] = useState(true);
   const [autoRebuy, setAutoRebuy] = useState(true);
   const [heroName, setHeroName] = useState('你');
 
@@ -60,6 +61,7 @@ export function SetupScreen({ onStart }: Props) {
       },
       squidEnabled,
       autoRebuy,
+      botSquidAwareness: botsKnowSquid ? 1 : 0,
     };
 
     onStart(setups, config);
@@ -199,6 +201,21 @@ export function SetupScreen({ onStart }: Props) {
                 <em>
                   只剩一人没有鱿鱼时立即结束本轮，由他独自买单。关闭则一直打到鱿鱼发完，
                   由持有最少的人平摊。
+                </em>
+              </span>
+            </label>
+
+            <label className="checkbox-field">
+              <input
+                type="checkbox"
+                checked={botsKnowSquid}
+                onChange={(e) => setBotsKnowSquid(e.target.checked)}
+              />
+              <span>
+                机器人会算鱿鱼
+                <em>
+                  机器人把「赢下这手能拿到的鱿鱼价值」算进底池赔率：本轮一条没拿、鱿鱼又快发完时，
+                  它们会明显打得更松更凶。关掉就是只会算底池的纯扑克机器人。
                 </em>
               </span>
             </label>
