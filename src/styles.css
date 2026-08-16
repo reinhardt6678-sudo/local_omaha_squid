@@ -349,6 +349,19 @@ button:disabled {
   accent-color: var(--accent);
 }
 
+.volume-slider {
+  width: 64px;
+  height: 4px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  margin-left: -6px;
+}
+
+.volume-slider:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
 .quit-button {
   padding: 5px 14px;
   background: transparent;
